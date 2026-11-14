@@ -1,20 +1,3 @@
-"""Controller: topology discovery, loop-free forwarding, and a path REST API.
-
-Run (from sdn/controller, in the venv's python, WITHOUT sudo):
-    ~/ryu-env/bin/python -m os_ken.cmd.manager cont.py --observe-links
-
-How it avoids broadcast loops:
-  * Switch/link discovery comes from the os-ken topology module (LLDP).
-  * ARP requests are flooded ONLY out host-facing ("edge") ports, never across
-    switch-to-switch links, so they cannot loop.
-  * Unicast traffic follows a shortest path computed on the discovered graph,
-    and flow rules are installed on every switch along that path.
-
-REST API on http://127.0.0.1:8080 (used by the diagnostic app):
-  GET  /topology                 switches, links (with ports), known hosts
-  GET  /paths?src=IP&dst=IP      every loop-free path between two hosts
-  POST /path  {"src","dst","path":[dpids]}   pin traffic to that path (both ways)
-"""
 import json
 from urllib.parse import parse_qs
 
@@ -33,7 +16,7 @@ ETH_ARP = 0x0806
 ETH_IPV4 = 0x0800
 BROADCAST = "ff:ff:ff:ff:ff:ff"
 API_HOST, API_PORT = "127.0.0.1", 8080
-PIN_PRIORITY = 20   # pinned paths beat the default shortest-path rules (priority 10)
+PIN_PRIORITY = 20
 
 
 class ApiError(Exception):
@@ -45,15 +28,14 @@ class Controller(app_manager.OSKenApp):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.datapaths = {}       # dpid -> datapath
-        self.graph = nx.Graph()   # switches as nodes, links as edges
-        self.link_ports = {}      # (dpid_a, dpid_b) -> port on a that faces b
-        self.switch_ports = {}    # dpid -> list of port numbers
-        self.mac_loc = {}         # host MAC -> (dpid, edge port)
-        self.ip_mac = {}          # host IP -> host MAC
+        self.datapaths = {}
+        self.graph = nx.Graph()
+        self.link_ports = {}
+        self.switch_ports = {}
+        self.mac_loc = {}
+        self.ip_mac = {}
         hub.spawn(self._start_api)
 
-    # ---------- switch connection ----------
     @set_ev_cls(ofp_event.EventOFPSwitchFeatures, CONFIG_DISPATCHER)
     def switch_features_handler(self, ev):
         dp = ev.msg.datapath
@@ -68,7 +50,6 @@ class Controller(app_manager.OSKenApp):
         dp.send_msg(parser.OFPFlowMod(datapath=dp, priority=priority, match=match,
                                       instructions=inst, idle_timeout=idle_timeout))
 
-    # ---------- topology discovery ----------
     @set_ev_cls([event.EventSwitchEnter, event.EventSwitchLeave,
                  event.EventLinkAdd, event.EventLinkDelete])
     def topology_changed(self, ev):
@@ -98,7 +79,6 @@ class Controller(app_manager.OSKenApp):
         return {dpid: set(ports) - used.get(dpid, set())
                 for dpid, ports in self.switch_ports.items()}
 
-    # ---------- packet handling ----------
     @set_ev_cls(ofp_event.EventOFPPacketIn, MAIN_DISPATCHER)
     def packet_in_handler(self, ev):
         msg = ev.msg
@@ -106,12 +86,12 @@ class Controller(app_manager.OSKenApp):
         dpid = dp.id
         in_port = msg.match["in_port"]
 
-        if not self.link_ports:      # topology not discovered yet: wait for LLDP
+        if not self.link_ports:
             return
 
         pkt = packet.Packet(msg.data)
         eth = pkt.get_protocols(ethernet.ethernet)[0]
-        if eth.ethertype not in (ETH_ARP, ETH_IPV4):   # ignores LLDP, IPv6, ...
+        if eth.ethertype not in (ETH_ARP, ETH_IPV4):
             return
 
         is_edge = in_port in self.edge_ports().get(dpid, set())
@@ -130,8 +110,7 @@ class Controller(app_manager.OSKenApp):
             return
 
         if eth.dst not in self.mac_loc:
-            return                   # unknown unicast: drop, never flood
-
+            return
         out_port = self.install_path(dpid, eth.dst)
         if out_port is None:
             return
@@ -179,7 +158,6 @@ class Controller(app_manager.OSKenApp):
         self.logger.info("PATH to %s: %s", dst_mac, " -> ".join(f"s{d}" for d in path))
         return self.install_rules(path, dst_mac, dst_port, priority=10, idle_timeout=30)
 
-    # ---------- path API ----------
     def _host(self, ip):
         mac = self.ip_mac.get(ip)
         if mac is None or mac not in self.mac_loc:
