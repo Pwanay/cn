@@ -1,0 +1,104 @@
+seq=0 LOST
+seq=1 LOST
+seq=2 LOST
+seq=3 rtt=22.918 ms
+seq=4 LOST
+seq=5 LOST
+seq=6 LOST
+seq=7 rtt=21.676 ms
+seq=8 rtt=21.763 ms
+seq=9 rtt=21.730 ms
+seq=10 LOST
+seq=11 rtt=22.083 ms
+seq=12 rtt=21.887 ms
+seq=13 rtt=21.582 ms
+seq=14 LOST
+seq=15 rtt=21.095 ms
+seq=16 LOST
+seq=17 rtt=20.732 ms
+seq=18 LOST
+seq=19 rtt=20.798 ms
+seq=20 LOST
+seq=21 rtt=21.024 ms
+seq=22 LOST
+seq=23 LOST
+seq=24 LOST
+seq=25 rtt=21.795 ms
+seq=26 LOST
+seq=27 rtt=21.131 ms
+seq=28 LOST
+seq=29 rtt=20.661 ms
+seq=30 LOST
+seq=31 LOST
+seq=32 LOST
+seq=33 LOST
+seq=34 LOST
+seq=35 LOST
+seq=36 LOST
+seq=37 rtt=21.091 ms
+seq=38 rtt=20.735 ms
+seq=39 rtt=20.968 ms
+seq=40 LOST
+seq=41 rtt=21.577 ms
+seq=42 LOST
+seq=43 LOST
+seq=44 rtt=20.875 ms
+seq=45 LOST
+seq=46 LOST
+seq=47 LOST
+seq=48 LOST
+seq=49 rtt=21.372 ms
+seq=50 LOST
+seq=51 rtt=21.183 ms
+seq=52 LOST
+seq=53 rtt=21.419 ms
+seq=54 LOST
+seq=55 LOST
+seq=56 rtt=21.626 ms
+seq=57 LOST
+seq=58 rtt=21.886 ms
+seq=59 LOST
+seq=60 rtt=21.392 ms
+seq=61 LOST
+seq=62 LOST
+seq=63 LOST
+seq=64 LOST
+seq=65 rtt=21.076 ms
+seq=66 LOST
+seq=67 LOST
+seq=68 LOST
+seq=69 LOST
+seq=70 LOST
+seq=71 LOST
+seq=72 rtt=21.791 ms
+seq=73 LOST
+seq=74 LOST
+seq=75 LOST
+seq=76 LOST
+seq=77 rtt=21.476 ms
+seq=78 rtt=21.685 ms
+seq=79 rtt=20.842 ms
+seq=80 rtt=20.859 ms
+seq=81 rtt=20.945 ms
+seq=82 LOST
+seq=83 LOST
+seq=84 LOST
+seq=85 LOST
+seq=86 LOST
+seq=87 LOST
+seq=88 LOST
+seq=89 rtt=21.317 ms
+seq=90 LOST
+seq=91 rtt=21.290 ms
+seq=92 LOST
+seq=93 LOST
+seq=94 LOST
+seq=95 LOST
+seq=96 rtt=21.013 ms
+seq=97 LOST
+seq=98 LOST
+seq=99 LOST
+
+--- summary ---
+sent=100 received=35 loss=65.0%
+rtt min/avg/max = 20.661/21.351/22.918 ms

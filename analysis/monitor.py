@@ -12,15 +12,21 @@ SAMPLE_RE = re.compile(r"seq=(\d+) (?:rtt=([\d.]+) ms|LOST)")
 
 
 class Monitor:
-    def __init__(self, net, consec_lost=5, cooldown=30, probe_timeout=0.3, survey_count=20):
+    def __init__(self, net, consec_lost=5, cooldown=30, probe_timeout=0.3, survey_count=20,
+                 trial_probes=10, recovery_margin=0.2, check_interval=1.0):
         self.net = net
-        self.consec_lost = consec_lost
-        self.cooldown = cooldown
+        self.consec_lost = consec_lost        
+        self.cooldown = cooldown              
         self.probe_timeout = probe_timeout
         self.survey_count = survey_count
+        self.trial_probes = trial_probes      
+        self.recovery_margin = recovery_margin 
+        self.check_interval = check_interval  
 
         self.active = None
-        self.baseline = {}
+        self.preferred = None
+        self.trial = None
+        self.baseline = {} 
         self.bad_until = {}
         self.lost_run = 0
         self.samples, self.events = [], []
@@ -35,7 +41,7 @@ class Monitor:
             print("Monitor not started: no working path.")
             return False
         self.baseline = {tuple(r["path"]): r for r in results}
-        self.active = best["path"]
+        self.active = self.preferred = best["path"]
         client = os.path.join(ROOT, "udp", "client.py")
         self.proc = self.net.get("h1").popen(
             ["python3", "-u", client, DST_IP, str(PORT), "1000000", str(self.probe_timeout)],
@@ -88,19 +94,30 @@ class Monitor:
                 continue
             rtt = float(m.group(2)) if m.group(2) else None
             self.samples.append({"t": self._now(), "seq": int(m.group(1)), "rtt": rtt,
-                                 "path": route_name(self.active)})
+                                 "path": route_name(self.active), "trial": self.trial is not None})
             self.lost_run = self.lost_run + 1 if rtt is None else 0
 
-            reason = None
+            now = time.time()
+            reason, paths = None, None
             if self.lost_run >= self.consec_lost:
                 reason = f"{self.lost_run} consecutive probes lost"
-            elif time.time() - last_check > 1.0:
-                last_check = time.time()
+            if now - last_check >= self.check_interval:
+                last_check = now
                 paths = self._paths()
-                if paths is not None and self.active not in paths:
+                if reason is None and paths is not None and self.active not in paths:
                     reason = "active path no longer exists in the topology (link down)"
-            if reason:
+
+            if self.trial:                      
+                self.trial["n"] += 1
+                self.trial["lost"] += rtt is None
+                if reason:
+                    self._end_trial(False, reason)
+                elif self.trial["n"] >= self.trial_probes:
+                    self._end_trial(self._trial_ok(), None)
+            elif reason:
                 self._failover(reason)
+            elif paths is not None:
+                self._maybe_recover(paths, now)
 
     def _failover(self, reason):
         old = self.active
@@ -111,7 +128,7 @@ class Monitor:
                   if p != old and self.bad_until.get(tuple(p), 0) < now]
         if not others:
             self._event("no-alternative", f"{route_name(old)} failed ({reason}), no other path available")
-            self.bad_until[tuple(old)] = 0
+            self.bad_until[tuple(old)] = 0          
             time.sleep(2)
             return
 
@@ -126,3 +143,44 @@ class Monitor:
             return
         self.active = new
         self._event("failover", f"{route_name(old)} => {route_name(new)}  ({reason})")
+
+    def _maybe_recover(self, paths, now):
+        """After a failover, try the preferred path again once it is listed and past its cooldown."""
+        pref = self.preferred
+        if (self.active == pref or pref not in paths
+                or self.bad_until.get(tuple(pref), 0) >= now):
+            return
+        prev = self.active
+        try:
+            api_pin(pref)
+        except Exception as e:
+            self._event("error", f"could not pin {route_name(pref)}: {e}")
+            return
+        self.active = pref
+        self.lost_run = 0
+        self.trial = {"prev": prev, "n": 0, "lost": 0}
+        self._event("recovery-trial", f"trying {route_name(pref)} again for {self.trial_probes} probes")
+
+    def _trial_ok(self):
+        base = self.baseline.get(tuple(self.preferred))
+        allowed = (base["loss_pct"] / 100 if base else 0.0) + self.recovery_margin
+        return self.trial["lost"] / self.trial["n"] <= allowed
+
+    def _end_trial(self, ok, reason):
+        t, self.trial = self.trial, None
+        self.lost_run = 0
+        if ok:
+            self._event("recovery", f"{route_name(self.active)} restored "
+                                    f"({t['lost']}/{t['n']} probes lost in the trial)")
+            return
+        failed = self.active
+        self.bad_until[tuple(failed)] = time.time() + self.cooldown
+        try:
+            api_pin(t["prev"])
+            self.active = t["prev"]
+        except Exception as e:
+            self._event("error", f"could not go back to {route_name(t['prev'])}: {e}")
+            return
+        why = reason or f"{t['lost']}/{t['n']} probes lost in the trial"
+        self._event("recovery-failed", f"{route_name(failed)} still bad ({why}); "
+                                       f"back on {route_name(self.active)}")
