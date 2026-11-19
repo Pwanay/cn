@@ -1,240 +1,127 @@
-Network Diagnostic and Path Analysis Tool
+[View Project Report (PDF)](AM557_AM517_AM520_report.pdf)
 
-1. Project Overview
+# Network Diagnostic and Path Analysis Tool
 
-The Network Diagnostic and Path Analysis Tool is a Computer Networks project that uses Mininet, Software-Defined Networking (SDN), and socket programming to study network performance.
+A Computer Networks project that combines **UDP socket programming**, **Mininet** and an **SDN controller (os-ken, OpenFlow 1.3)**. UDP probes measure round-trip time (RTT) and packet loss on two alternative paths between two hosts. The measurements are tied to the paths discovered by the controller, failed or degraded paths are detected, and traffic is moved to a better path through the controller.
 
-The project creates a network with two hosts and four switches. It provides two different communication paths between the hosts. These paths have different network conditions, such as delay and packet loss.
+## Architecture
 
-The tool uses UDP client-server communication to measure network performance. It aims to help identify network problems and understand how changing paths can affect communication.
+```
+                s2   (Path A: 5 ms, 0% loss)
+              /    \
+ h1 (10.0.0.1) - s1     s4 - h2 (10.0.0.2)
+              \    /
+                s3   (Path B: 20 ms, 5% loss)
 
-2. Problem Statement
+ os-ken controller (sdn/cont.py)  <-- OpenFlow 1.3 (6653) -->  switches s1-s4
+        ^
+        | REST API (127.0.0.1:8080)
+ diagnose / monitor (analysis/)  -->  UDP probes between h1 and h2 (port 5000)
+```
 
-In a computer network, problems such as high delay, packet loss, and link failure can affect communication between devices.
+| Part | Files | Role |
+|---|---|---|
+| UDP diagnostics | `udp/server.py`, `udp/client.py` | Echo server; client measures RTT and loss |
+| Network and SDN | `sdn/diamond.py`, `sdn/cont.py` | Mininet topology; controller with topology discovery, loop-free forwarding and a path REST API |
+| Analysis | `analysis/diagnose.py`, `analysis/monitor.py` | Probe and compare every path, pin the best one; continuous monitoring with failover and recovery |
 
-Traditional networks may require manual changes to routing configurations when network conditions change.
+## Requirements
 
-Our project explores how SDN and network monitoring can help analyse network conditions and select suitable paths for communication.
+- Linux (tested on Ubuntu 24.04, Python 3.12) with root access (`sudo`)
+- Mininet and Open vSwitch
+- Python packages from `requirements.txt`: `os-ken==3.1.1` and `networkx`
 
-3. Project Objectives
+```bash
+sudo apt install mininet openvswitch-switch python3-venv python3-pip git
+git clone https://github.com/Pwanay/cn.git
+cd cn
+python3 -m venv ~/ryu-env
+~/ryu-env/bin/pip install -r requirements.txt
+```
 
-- Create a network topology using Mininet.
-- Establish two different paths between two hosts.
-- Use OpenFlow-based switches and an SDN controller.
-- Measure network performance using UDP socket programming.
-- Monitor parameters such as Round Trip Time (RTT) and packet loss.
-- Study the effect of different network conditions on communication.
-- Explore dynamic path selection and recovery through SDN.
+os-ken is used instead of Ryu because Ryu does not install on Python 3.12, and version 3.1.1 is pinned because the newest release lacks its command-line manager.
 
-4. System Architecture
+## How to run
 
-The project is divided into three main modules.
+Use two terminals. All paths are relative to the repository root.
 
-Part A – Network Topology and Path Selection
+**Terminal 1: controller** (venv Python, no `sudo`, started from `sdn/`)
 
-This module creates the network topology using Mininet.
+```bash
+cd sdn
+~/ryu-env/bin/python -m os_ken.cmd.manager cont.py --observe-links
+```
 
-- Two hosts: h1 and h2.
-- Four switches: s1, s2, s3, and s4.
-- Two communication paths:
+It is ready when it prints `REST API listening on http://127.0.0.1:8080`.
 
-Path A: h1 → s1 → s2 → s4 → h2
+**Terminal 2: network** (system Python, with `sudo`, started from the repository root)
 
-Path B: h1 → s1 → s3 → s4 → h2
+```bash
+sudo mn -c
+sudo python3 sdn/diamond.py
+```
 
-Different delay and packet-loss conditions are configured for the paths. The topology uses OpenFlow 1.3 switches and connects to an SDN controller.
+Wait until the controller prints `TOPOLOGY switches=[1, 2, 3, 4]` with four links. At the `mininet>` prompt:
 
-Part B – SDN Controller and Path Analysis
-
-This module is responsible for controlling the network through an SDN controller.
-
-Its intended functions include:
-
-- Communicating with OpenFlow switches.
-- Monitoring network conditions.
-- Analysing the available paths.
-- Updating forwarding rules based on network conditions.
-- Supporting dynamic path selection and recovery.
-
-Part C – UDP-Based Network Diagnostics
-
-This module uses UDP sockets to measure network performance.
-
-It consists of:
-
-UDP Server
-- Listens for incoming UDP packets.
-- Receives packets from the client.
-- Sends the received data back to the client.
-
-UDP Client
-- Sends packets to the server.
-- Measures Round Trip Time (RTT).
-- Identifies lost packets.
-- Calculates packet-loss percentage.
-- Displays minimum, average, and maximum RTT.
-
-5. Technologies Used
-
-| Technology | Purpose |
+| Command | What it does |
 |---|---|
-| Python | Implementation of topology and socket programs |
-| Mininet | Network topology creation and simulation |
-| Open vSwitch | Software-based network switches |
-| OpenFlow 1.3 | Communication between controller and switches |
-| SDN Controller | Network control and path management |
-| UDP Sockets | Network communication and diagnostics |
-| Linux / Ubuntu | Development and testing environment |
+| `diagnose [N]` | Probes every path with N probes (default 30), prints a comparison table, pins the best path |
+| `monitor start` | Surveys the paths, pins the best, then probes continuously and fails over when the active path fails |
+| `monitor mark TEXT` | Labels the timeline (for example `link-down`) |
+| `monitor stop` | Stops and saves `results/monitor_<time>.json` |
+| `path a\|b\|off`, `probe [N]` | Manual demo commands (manual path rules and plain probes); use them with the monitor stopped |
 
-6. Network Configuration
+Inject faults with `link s1 s2 down` (hard failure) or
+`sh tc qdisc change dev s1-eth2 root netem delay 5ms loss 50% && tc qdisc change dev s2-eth1 root netem delay 5ms loss 50%` (soft failure, link stays up).
 
-The topology contains two hosts and four switches.
-
-| Component | Configuration |
-|---|---|
-| Host h1 | 10.0.0.1/24 |
-| Host h2 | 10.0.0.2/24 |
-| Switches | s1, s2, s3, s4 |
-| Controller | 127.0.0.1:6653 |
-| OpenFlow version | OpenFlow 1.3 |
-| Path A delay | 5 ms on configured inter-switch links |
-| Path A packet loss | 0% |
-| Path B delay | 20 ms on configured inter-switch links |
-| Path B packet loss | 5% |
-
-These are the configured link conditions. Actual measured performance will be added after testing.
-
-7. Project Folder Structure
-
-The project contains the following main program files:
-
-CN_Project13/
-│
-├── topology.py
-├── topology_backup.py
-├── server.py
-├── client.py
-│
-└── README.md
-
-The SDN controller files and any additional modules will be included as they are integrated into the project.
-
-8. How to Run the Project
-
-Step 1: Start Open vSwitch
+**UDP tools on their own** (any machine, no Mininet needed)
 
 ```bash
-sudo systemctl start openvswitch-switch
+python3 udp/server.py [port] [-v]                       # default port 5000, -v prints each probe
+python3 udp/client.py <dest_ip> <port> [count] [timeout_s]
 ```
 
-Check its status:
+Exit Mininet with `exit`, then run `sudo mn -c` before the next session.
 
-```bash
-sudo systemctl is-active openvswitch-switch
+## Results (mean of 3 runs per condition)
+
+| Condition | Static loss | Static RTT | Dynamic loss | Dynamic RTT | Dynamic outage |
+|---|---|---|---|---|---|
+| Normal | 16.3% | 81.4 ms | 0.0% | 21.2 ms | n/a |
+| Soft failure (50% loss on Path A) | 70.0% | 21.4 ms (replies only) | 25.0% | 80.3 ms after failover | 2.8 s |
+| Hard failure (link s1-s2 down) | 100% | no replies | 23.3% | 81.3 ms after failover | 0.6 s |
+
+Static means a fixed route with no measurement and no rerouting; dynamic means `diagnose` and the monitor. For the failure rows, loss is counted over the first 100 probes after the fault. Raw results are in `results/final/`, and the full analysis is in the project report.
+
+## Repository structure
+
 ```
-Step 2: Start the SDN Controller
-
-Start the controller using the appropriate command for the controller implementation integrated into the project.
-
-The controller should listen on port 6653.
-
-Step 3: Start the Mininet Topology
-
-Open a terminal and run:
-
-```bash
-cd ~/CN_Project13
-sudo python3 topology.py
-```
-Step 4: Test Network Connectivity
-
-Inside the Mininet CLI, run:
-
-```bash
-nodes
+sdn/            cont.py, diamond.py
+udp/            server.py, client.py
+analysis/       diagnose.py, monitor.py
+results/final/  saved runs
+requirements.txt
+README.md
 ```
 
-```bash
-net
-```
+## Troubleshooting
 
-```bash
-pingall
-```
-Step 5: Test Path Selection
+- **`ModuleNotFoundError: No module named 'cont'`:** start the controller from inside `sdn/`.
+- **`RTNETLINK answers: File exists`:** run `sudo mn -c` and start the topology again.
+- **`diagnose` reports "host not seen yet":** make sure the controller is running, then try again.
+- **The controller must not run under `sudo` or without the venv, and `diamond.py` must run under `sudo` with the system Python.**
 
-Inside the Mininet CLI, run:
+## Limitations
 
-```bash
-path a
-```
+- One host pair and two paths.
+- Soft-failure detection relies on five consecutive lost probes, so a path that only becomes slow is not detected.
+- Testing a recovered path uses live traffic, which costs a short burst of loss if the path is still bad.
 
-```bash
-path b
-```
-
-These commands select the predefined paths in the current topology implementation.
-
-Step 6: Test UDP Communication
-
-Start the UDP server on h2 from the Mininet CLI:
-
-```bash
-h2 python3 server.py
-```
-
-Open another terminal and start the Mininet topology CLI, then run the client on h1:
-
-```bash
-h1 python3 client.py 10.0.0.2 5000 20 1.0
-```
-
-The client displays packet RTT and the final packet-loss and RTT summary.
-
-
-9. Performance Evaluation
-
-The project evaluates network performance using the following parameters:
-
-- Round Trip Time (RTT): Time taken for a packet to travel to the destination and return.
-- Packet Loss:Percentage of packets that do not reach the destination and return successfully.
-- Average RTT: Average time taken for successful packet exchanges.
-- Minimum and Maximum RTT: Lowest and highest measured round-trip times.
-
-Path A and Path B will be compared under their configured network conditions.
-
-Actual measurements and comparison tables will be added after testing.
-
-10. Challenging Scenario
-
-The project aims to demonstrate a challenging network condition such as packet loss.
-
-The network can be tested under different loss conditions to observe how communication is affected.
-
-The SDN controller's response, including path changes or recovery, will be documented after the relevant functionality is implemented and tested.
-
-11. Expected Outcome
-
-The expected outcome is a working network diagnostic system that:
-
-- Creates and manages a network using Mininet.
-- Provides two alternative communication paths.
-- Measures network performance using UDP.
-- Analyses the effects of delay and packet loss.
-- Uses SDN to support network management and dynamic path selection.
-
-12. Team Contributions
+## Team contributions
 
 | Module | Responsibility |
+|---|---|
 | Part A | Mininet topology and path selection |
 | Part B | SDN controller and path analysis |
 | Part C | UDP client-server communication and performance measurement |
-| Integration | Combining modules, testing, and documentation |
-
-13. Conclusion
-
-This project demonstrates how Mininet, SDN, and socket programming can be used together to study network behaviour.
-
-By creating alternative paths and measuring parameters such as RTT and packet loss, the project helps us understand the importance of network monitoring and path management.
-
-It also explores how SDN can help networks respond to changing conditions and improve communication reliability.
+| Integration | Combining modules, testing and documentation |
