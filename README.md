@@ -119,9 +119,6 @@ README.md
 
 ## Team contributions
 
-| Module | Responsibility |
-|---|---|
-| Part A | Mininet topology and path selection |
-| Part B | SDN controller and path analysis |
-| Part C | UDP client-server communication and performance measurement |
-| Integration | Combining modules, testing and documentation |
+Pranay KR :- SDN controller and path analysis, report
+Sharika Shetty :- udp probes, report
+Saniya DS :- Mininet topology, report
